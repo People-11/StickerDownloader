@@ -277,6 +277,11 @@ func downloadWorker(ctx context.Context, queue chan tgbotapi.Sticker, task *down
 					OutputFilePath: fmt.Sprintf("%s/%s.%s", task.folderName, sticker.FileUniqueID, fileExt),
 				}
 
+				// For TGS stickers, preserve the decompressed JSON during conversion
+				if utils.GetFileExtName(tempFilePath) == "tgs" && config.Get().General.SupportTGSFile {
+					convertTask.PreserveJsonPath = fmt.Sprintf("%s/%s.json", task.folderName, sticker.FileUniqueID)
+				}
+
 				err = convertTask.Run(ctx)
 				utils.RemoveFile(tempFilePath)
 				if err != nil {

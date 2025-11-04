@@ -24,6 +24,9 @@ type ConvertTask struct {
 
 	//Output file for converting
 	OutputFilePath string
+
+	//Optional: For TGS files, preserve the decompressed JSON to this path
+	PreserveJsonPath string
 }
 
 func (task *ConvertTask) Run(ctx context.Context) error {
@@ -41,8 +44,16 @@ func (task *ConvertTask) Run(ctx context.Context) error {
 			return err
 		}
 		task.InputFilePath = task.InputFilePath + ".json"
+
+		// If PreserveJsonPath is set, copy the decompressed JSON before processing
+		if task.PreserveJsonPath != "" {
+			if err := CopyFile(task.InputFilePath, task.PreserveJsonPath); err != nil {
+				logger.Warn.Printf("failed to preserve JSON to %s: %v", task.PreserveJsonPath, err)
+			}
+		}
+
 		//handle it to rlottie
-		cmd = exec.CommandContext(ctx, rlottieExcutablePath, strings.Split(fmt.Sprintf("%s 200x200", task.InputFilePath), " ")...)
+		cmd = exec.CommandContext(ctx, rlottieExcutablePath, strings.Split(fmt.Sprintf("%s 512x512", task.InputFilePath), " ")...)
 		//remember to delete xxx.tgs.json
 		defer func() {
 			if err := os.Remove(task.InputFilePath); err != nil {
@@ -50,7 +61,14 @@ func (task *ConvertTask) Run(ctx context.Context) error {
 			}
 		}()
 	} else {
-		cmd = exec.CommandContext(ctx, ffmpegExecutablePath, strings.Split(fmt.Sprintf("-y -i %s -vf scale=-1:-1 -r 20 %s", task.InputFilePath, task.OutputFilePath), " ")...)
+		// 使用 fps 滤镜限制最大帧率为 40，低于 40 的保持原始帧率
+		args := []string{
+			"-y",
+			"-i", task.InputFilePath,
+			"-vf", "fps=fps='min(source_fps,40)',scale=-1:-1",
+			task.OutputFilePath,
+		}
+		cmd = exec.CommandContext(ctx, ffmpegExecutablePath, args...)
 	}
 
 	//cmd.Stderr = logWriter{}
@@ -126,4 +144,31 @@ func (task *ConvertTask) tgsDecode() error {
 	}
 
 	return nil
+}
+
+// TgsToJson extracts the JSON content from a TGS file (gzip-compressed JSON)
+// and saves it to the specified output path
+func TgsToJson(tgsFilePath, jsonOutputPath string) error {
+	// Open TGS file for reading
+	tgsFile, err := os.Open(tgsFilePath)
+	if err != nil {
+		return err
+	}
+	defer tgsFile.Close()
+
+	// Decompress gzip
+	r, err := gzip.NewReader(tgsFile)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+
+	// Read decompressed JSON content
+	buff := bytes.Buffer{}
+	if _, err = buff.ReadFrom(r); err != nil {
+		return err
+	}
+
+	// Write JSON to output file
+	return os.WriteFile(jsonOutputPath, buff.Bytes(), 0644)
 }

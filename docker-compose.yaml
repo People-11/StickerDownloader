@@ -2,19 +2,20 @@ version: "3.9"
 
 services:
   redis:
-    image: redis:7
+    image: redis:7-alpine
     container_name: sticker_redis
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
 
   app:
-    image: rroy233/stickerdownloader:latest
+    image: ghcr.io/people-11/stickerdownloader:latest
     container_name: sticker_app
     depends_on:
       - redis
     volumes:
+      - ./config.yaml:/app/config.yaml:ro
       - ./.env:/app/.env:ro
       - ./log:/app/log
       - ./storage:/app/storage

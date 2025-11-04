@@ -2,27 +2,16 @@
 
 StickerDownloader 应用，支持以下两种场景：
 
-1. **方式一**：使用 `docker-compose` 一键部署 Redis 和 App
+1. **方式一**：使用 `docker compose` 一键部署 Redis 和 App
 2. **方式二**：使用外部 Redis，仅运行 App 容器（连接宿主机或云端 Redis）
 
 ---
 
 ## 🧰 准备前提
 
-* 安装好 [Docker](https://docs.docker.com/get-docker/)
-* 安装好 [Docker Compose](https://docs.docker.com/compose/)
+* 安装好 [Docker](https://get.docker.com/)
 * 克隆或下载本项目源代码
 * 将 `config.example.yaml` 修改为实际配置并命名为 `config.yaml`
-
-**镜像源选择**
-
-| 镜像仓库                      | 镜像地址格式                                                     |
-| ------------------------- |------------------------------------------------------------|
-| Docker Hub                | `docker.io/rroy233/stickerdownloader`                      |
-| GitHub Container Registry | `ghcr.io/rroy233/stickerdownloader`                       |
-| 阿里云镜像仓库                   | `registry.cn-guangzhou.aliyuncs.com/rroy233/stickerdownloader` |
-
-(本教程默认使用Docker Hub作为镜像仓库)
 
 ---
 
@@ -43,19 +32,10 @@ redis:
 
 ---
 
-### 🧩 2. 修改默认的docker-compose.yml
-
-```yaml
-  app:
-    image: rroy233/stickerdownloader:latest   # 可替换镜像
-```
-
----
-
-### ▶️ 3. 一键启动
+### ▶️ 2. 一键启动
 
 ```bash
-docker-compose up --build -d
+docker compose up -d
 ```
 
 ---
@@ -98,6 +78,6 @@ docker run -d \
 # 🧼 清理
 
 ```bash
-docker-compose down -v     # 方式一
+docker compose down -v     # 方式一
 docker rm -f sticker_app   # 方式二
 ```
