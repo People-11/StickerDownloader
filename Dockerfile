@@ -49,9 +49,70 @@ RUN mkdir build && \
     make && \
     strip output/lottie2gif || true
 
+FROM alpine:latest as ffmpeg-builder
+
+ARG TARGETARCH
+
+RUN apk add --no-cache \
+    git \
+    build-base \
+    yasm \
+    nasm \
+    zlib-dev \
+    zlib-static
+
+WORKDIR /build
+RUN git clone --depth 1 --branch n7.0 https://git.ffmpeg.org/ffmpeg.git
+
+WORKDIR /build/ffmpeg
+
+RUN set -ex && \
+    ARCH_FLAGS="" && \
+    if [ "$TARGETARCH" = "amd64" ]; then \
+        ARCH_FLAGS="--enable-x86asm --enable-inline-asm --enable-lto"; \
+        EXTRA_CFLAGS="-Ofast -march=x86-64-v3 -mtune=generic -flto=auto -ffast-math -funroll-loops -fomit-frame-pointer -ffunction-sections -fdata-sections -pipe -fno-plt -fno-semantic-interposition"; \
+        EXTRA_LDFLAGS="-flto=auto -Wl,--gc-sections -Wl,--as-needed -Wl,-O1 -Wl,--strip-all -static"; \
+    elif [ "$TARGETARCH" = "arm64" ]; then \
+        ARCH_FLAGS="--enable-neon --enable-inline-asm --enable-lto"; \
+        EXTRA_CFLAGS="-O3 -flto=auto -funroll-loops -fomit-frame-pointer -ffunction-sections -fdata-sections -pipe"; \
+        EXTRA_LDFLAGS="-flto=auto -Wl,--gc-sections -Wl,--as-needed -Wl,-O1 -Wl,--strip-all -static"; \
+    else \
+        EXTRA_CFLAGS="-O3 -ffunction-sections -fdata-sections -pipe"; \
+        EXTRA_LDFLAGS="-Wl,--gc-sections -Wl,--as-needed -Wl,-O1 -static"; \
+    fi && \
+    ./configure \
+      --disable-everything \
+      --disable-autodetect \
+      --enable-decoder=webp,vp8,vp9,h264 \
+      --enable-encoder=gif,png \
+      --enable-demuxer=webp,matroska,mov,image2 \
+      --enable-muxer=gif,image2 \
+      --enable-parser=vp8,vp9,h264 \
+      --enable-filter=fps,scale \
+      --enable-protocol=file \
+      --enable-zlib \
+      --disable-doc \
+      --disable-htmlpages \
+      --disable-manpages \
+      --disable-podpages \
+      --disable-txtpages \
+      --disable-network \
+      --disable-debug \
+      --disable-devices \
+      --disable-ffplay \
+      --disable-ffprobe \
+      --enable-small \
+      --enable-optimizations \
+      --enable-runtime-cpudetect \
+      ${ARCH_FLAGS} \
+      --extra-cflags="$EXTRA_CFLAGS" \
+      --extra-ldflags="$EXTRA_LDFLAGS" && \
+    make -j$(nproc) && \
+    strip --strip-all --remove-section=.comment --remove-section=.note ffmpeg
+
 FROM alpine:latest
 
-RUN apk add --no-cache ffmpeg redis ca-certificates
+RUN apk add --no-cache redis ca-certificates
 
 WORKDIR /app
 
@@ -60,6 +121,7 @@ COPY --from=builder /app/languages ./languages
 
 RUN mkdir -p lottie2gif
 COPY --from=lottie2gif-builder /build/lottie2gif/output/lottie2gif ./lottie2gif/
+COPY --from=ffmpeg-builder /build/ffmpeg/ffmpeg /usr/local/bin/ffmpeg
 
 VOLUME ["/app/storage", "/app/log"]
 
