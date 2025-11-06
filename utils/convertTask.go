@@ -187,7 +187,6 @@ func TgsToJson(tgsFilePath, jsonOutputPath string) error {
 	return os.WriteFile(jsonOutputPath, buff.Bytes(), 0644)
 }
 
-// detectWebmAlpha checks if WebM has transparent pixels by sampling first frame
 func (task *ConvertTask) detectWebmAlpha(ctx context.Context) bool {
 	tempPNG := task.InputFilePath + "_alpha_check.png"
 	defer os.Remove(tempPNG)
@@ -196,6 +195,7 @@ func (task *ConvertTask) detectWebmAlpha(ctx context.Context) bool {
 		"-vcodec", "libvpx-vp9",
 		"-i", task.InputFilePath,
 		"-frames:v", "1",
+		"-compression_level", "0",
 		"-y", tempPNG)
 
 	if cmd.Run() != nil {
@@ -214,10 +214,29 @@ func (task *ConvertTask) detectWebmAlpha(ctx context.Context) bool {
 	}
 
 	bounds := img.Bounds()
-	for y := bounds.Min.Y; y < bounds.Max.Y; y += 4 {
-		for x := bounds.Min.X; x < bounds.Max.X; x += 4 {
-			_, _, _, a := img.At(x, y).RGBA()
-			if a < 65535 {
+	width := bounds.Dx()
+	height := bounds.Dy()
+
+	checkPixel := func(x, y int) bool {
+		_, _, _, a := img.At(x, y).RGBA()
+		return a < 65535
+	}
+
+	for x := 0; x < width; x += 8 {
+		if checkPixel(x, 0) || checkPixel(x, height-1) {
+			return true
+		}
+	}
+
+	for y := 0; y < height; y += 8 {
+		if checkPixel(0, y) || checkPixel(width-1, y) {
+			return true
+		}
+	}
+
+	for y := 16; y < height-16; y += 32 {
+		for x := 16; x < width-16; x += 32 {
+			if checkPixel(x, y) {
 				return true
 			}
 		}
@@ -226,7 +245,6 @@ func (task *ConvertTask) detectWebmAlpha(ctx context.Context) bool {
 	return false
 }
 
-// trimTransparentEdges crops transparent edges from a PNG image
 func trimTransparentEdges(imagePath string) error {
 	file, err := os.Open(imagePath)
 	if err != nil {
@@ -240,28 +258,67 @@ func trimTransparentEdges(imagePath string) error {
 	}
 
 	bounds := img.Bounds()
-	minX, minY, maxX, maxY := bounds.Max.X, bounds.Max.Y, bounds.Min.X, bounds.Min.Y
+	width := bounds.Dx()
+	height := bounds.Dy()
+	minX, maxX := width, 0
+	minY, maxY := height, 0
 
-	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-		for x := bounds.Min.X; x < bounds.Max.X; x++ {
-			if _, _, _, a := img.At(x, y).RGBA(); a > 0 {
-				if x < minX {
-					minX = x
-				}
-				if x > maxX {
-					maxX = x
-				}
+	isOpaque := func(x, y int) bool {
+		_, _, _, a := img.At(x, y).RGBA()
+		return a > 0
+	}
+
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			if isOpaque(x, y) {
 				if y < minY {
 					minY = y
 				}
-				if y > maxY {
-					maxY = y
-				}
+				break
 			}
+		}
+		if minY < height {
+			break
 		}
 	}
 
-	if minX > maxX || minY > maxY || (minX == bounds.Min.X && minY == bounds.Min.Y && maxX == bounds.Max.X-1 && maxY == bounds.Max.Y-1) {
+	for y := height - 1; y >= minY; y-- {
+		for x := 0; x < width; x++ {
+			if isOpaque(x, y) {
+				maxY = y
+				break
+			}
+		}
+		if maxY > 0 {
+			break
+		}
+	}
+
+	for x := 0; x < width; x++ {
+		for y := minY; y <= maxY; y++ {
+			if isOpaque(x, y) {
+				minX = x
+				break
+			}
+		}
+		if minX < width {
+			break
+		}
+	}
+
+	for x := width - 1; x >= minX; x-- {
+		for y := minY; y <= maxY; y++ {
+			if isOpaque(x, y) {
+				maxX = x
+				break
+			}
+		}
+		if maxX > 0 {
+			break
+		}
+	}
+
+	if minX >= maxX || minY >= maxY || (minX == 0 && minY == 0 && maxX == width-1 && maxY == height-1) {
 		return nil
 	}
 
