@@ -58,37 +58,59 @@ RUN apk add --no-cache \
     build-base \
     yasm \
     nasm \
+    pkgconf \
     zlib-dev \
-    zlib-static
+    zlib-static \
+    perl \
+    diffutils
+
+# Build libvpx from source for static library
+WORKDIR /build
+RUN git clone --depth 1 --branch v1.14.1 https://github.com/webmproject/libvpx.git && \
+    cd libvpx && \
+    ./configure \
+      --prefix=/usr/local \
+      --disable-shared \
+      --enable-static \
+      --disable-examples \
+      --disable-tools \
+      --disable-docs \
+      --disable-unit-tests && \
+    make -j$(nproc) && \
+    make install
 
 WORKDIR /build
-RUN git clone --depth 1 --branch n7.0 https://git.ffmpeg.org/ffmpeg.git
+RUN git clone --depth 1 --branch n7.0 https://github.com/FFmpeg/FFmpeg.git ffmpeg
 
 WORKDIR /build/ffmpeg
+
+# Set PKG_CONFIG_PATH so ffmpeg can find libvpx
+ENV PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:$PKG_CONFIG_PATH
 
 RUN set -ex && \
     ARCH_FLAGS="" && \
     if [ "$TARGETARCH" = "amd64" ]; then \
         ARCH_FLAGS="--enable-x86asm --enable-inline-asm --enable-lto"; \
-        EXTRA_CFLAGS="-Ofast -march=x86-64-v3 -mtune=generic -flto=auto -ffast-math -funroll-loops -fomit-frame-pointer -ffunction-sections -fdata-sections -pipe -fno-plt -fno-semantic-interposition"; \
-        EXTRA_LDFLAGS="-flto=auto -Wl,--gc-sections -Wl,--as-needed -Wl,-O1 -Wl,--strip-all -static"; \
+        EXTRA_CFLAGS="-I/usr/local/include -Ofast -march=x86-64-v3 -mtune=generic -flto=auto -ffast-math -funroll-loops -fomit-frame-pointer -ffunction-sections -fdata-sections -pipe -fno-plt -fno-semantic-interposition"; \
+        EXTRA_LDFLAGS="-L/usr/local/lib -flto=auto -Wl,--gc-sections -Wl,--as-needed -Wl,-O1 -Wl,--strip-all -static"; \
     elif [ "$TARGETARCH" = "arm64" ]; then \
         ARCH_FLAGS="--enable-neon --enable-inline-asm --enable-lto"; \
-        EXTRA_CFLAGS="-O3 -flto=auto -funroll-loops -fomit-frame-pointer -ffunction-sections -fdata-sections -pipe"; \
-        EXTRA_LDFLAGS="-flto=auto -Wl,--gc-sections -Wl,--as-needed -Wl,-O1 -Wl,--strip-all -static"; \
+        EXTRA_CFLAGS="-I/usr/local/include -O3 -flto=auto -funroll-loops -fomit-frame-pointer -ffunction-sections -fdata-sections -pipe"; \
+        EXTRA_LDFLAGS="-L/usr/local/lib -flto=auto -Wl,--gc-sections -Wl,--as-needed -Wl,-O1 -Wl,--strip-all -static"; \
     else \
-        EXTRA_CFLAGS="-O3 -ffunction-sections -fdata-sections -pipe"; \
-        EXTRA_LDFLAGS="-Wl,--gc-sections -Wl,--as-needed -Wl,-O1 -static"; \
+        EXTRA_CFLAGS="-I/usr/local/include -O3 -ffunction-sections -fdata-sections -pipe"; \
+        EXTRA_LDFLAGS="-L/usr/local/lib -Wl,--gc-sections -Wl,--as-needed -Wl,-O1 -static"; \
     fi && \
     ./configure \
       --disable-everything \
       --disable-autodetect \
-      --enable-decoder=webp,vp8,vp9,h264 \
+      --enable-libvpx \
+      --enable-decoder=webp,libvpx_vp8,libvpx_vp9,h264 \
       --enable-encoder=gif,png \
       --enable-demuxer=webp,matroska,mov,image2 \
       --enable-muxer=gif,image2 \
       --enable-parser=vp8,vp9,h264 \
-      --enable-filter=fps,scale \
+      --enable-filter=fps,scale,split,palettegen,paletteuse \
       --enable-protocol=file \
       --enable-zlib \
       --disable-doc \
