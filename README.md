@@ -12,7 +12,7 @@
    <a href="https://github.com/rroy233/StickerDownloader/commits/main">
       <img alt="GitHub last commit" src="https://img.shields.io/github/last-commit/rroy233/StickerDownloader?style=flat-square">
    </a>
-    <a href="https://t.me/stickers_download_bot">
+    <a href="https://t.me/wjdvouavadkfjvndhviuevliausdbot">
       <img alt="GitHub last commit" src="https://img.shields.io/badge/demo-%40stickers__download__bot-green?style=flat-square">
    </a>
 </p>
@@ -26,6 +26,11 @@
 * 减小 Docker 镜像大小
 * 完善 Docker 部署文档
 * 修改 GIF 转换最高 40FPS
+* 自动裁剪透明边框
+* 正确保留透明背景 (仅 WebM)
+* 修复从 ENV 读取配置
+* 重构工作队列为异步流式处理
+* 修复 RAM 占用过高问题
 
 ### 功能
 

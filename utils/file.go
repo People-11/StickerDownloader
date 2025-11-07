@@ -10,7 +10,6 @@ import (
 	"io"
 	"os"
 	"strings"
-	"sync"
 )
 
 const MB = 1 << 20
@@ -88,38 +87,22 @@ func (f *UploadFile) UploadFragment(update *tgbotapi.Update) error {
 		sizeSum += sizes[i]
 	}
 
-	//先压缩所有文件
+	//压缩并上传
 	for i := 0; i <= folderIndex; i++ {
 		err = Compress(fmt.Sprintf("%s_%d", f.FolderPath, i), fmt.Sprintf("%s_part-%d.zip", f.FolderPath, i))
 		if err != nil {
 			logger.Error.Println("UploadFragment Compress error", err)
 		}
 		f.CleanList = append(f.CleanList, fmt.Sprintf("%s_part-%d.zip", f.FolderPath, i))
+
+		SendAction(GetChatID(update), ChatActionSendDocument)
+		_, err = SendFileByPath(update, fmt.Sprintf("%s_part-%d.zip", f.FolderPath, i))
+		if err != nil {
+			logger.Error.Println("UploadFragment SendFile error", err)
+		}
 	}
 
-	//并发上传所有zip文件
-	var uploadErr error
-	uploadWg := make(chan struct{}, 3) // 限制最多3个并发上传
-	var wg sync.WaitGroup
-
-	for i := 0; i <= folderIndex; i++ {
-		wg.Add(1)
-		go func(index int) {
-			defer wg.Done()
-			uploadWg <- struct{}{}        // 获取信号量
-			defer func() { <-uploadWg }() // 释放信号量
-
-			SendAction(GetChatID(update), ChatActionSendDocument)
-			_, err := SendFileByPath(update, fmt.Sprintf("%s_part-%d.zip", f.FolderPath, index))
-			if err != nil {
-				logger.Error.Printf("UploadFragment SendFile error (part %d): %v", index, err)
-				uploadErr = err
-			}
-		}(i)
-	}
-
-	wg.Wait()
-	return uploadErr
+	return err
 }
 
 func (f *UploadFile) UploadSingle(update *tgbotapi.Update) error {
@@ -236,7 +219,6 @@ func compress(file *os.File, prefix string, zw *zip.Writer) error {
 			return err
 		}
 		header.Name = strings.TrimPrefix(prefix+"/"+header.Name, "/")
-
 		writer, err := zw.CreateHeader(header)
 		if err != nil {
 			return err

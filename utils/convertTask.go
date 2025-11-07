@@ -13,33 +13,21 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
-	"strings"
 )
 
 type ConvertTask struct {
-	//Input file for converting
-	InputFilePath string
-
-	//Input file extension
-	//support: webp,webm,mp4,tgs
-	InputExtension string
-
-	//Output file for converting
-	OutputFilePath string
-
-	//Optional: For TGS files, preserve the decompressed JSON to this path
+	InputFilePath    string
+	InputExtension   string
+	OutputFilePath   string
 	PreserveJsonPath string
 }
 
-const (
-	// Palette filter for GIF transparency: split stream, generate palette with transparency slot, apply palette
-	paletteFilter = "split[s0][s1];[s0]palettegen=reserve_transparent=1[p];[s1][p]paletteuse"
-)
+const paletteFilter = "split[s0][s1];[s0]fps=5,palettegen=reserve_transparent=1[p];[s1][p]paletteuse=dither=none"
 
 func (task *ConvertTask) Run(ctx context.Context) error {
 	var cmd *exec.Cmd
 	if task.InputExtension == "tgs" {
-		if config.Get().General.SupportTGSFile == false {
+		if !config.Get().General.SupportTGSFile {
 			return errors.New("SupportTGSFile is disabled")
 		}
 		if err := task.tgsDecode(); err != nil {
@@ -48,7 +36,7 @@ func (task *ConvertTask) Run(ctx context.Context) error {
 		if err := os.Rename(task.InputFilePath, task.InputFilePath+".json"); err != nil {
 			return err
 		}
-		task.InputFilePath = task.InputFilePath + ".json"
+		task.InputFilePath += ".json"
 
 		if task.PreserveJsonPath != "" {
 			if err := CopyFile(task.InputFilePath, task.PreserveJsonPath); err != nil {
@@ -56,82 +44,52 @@ func (task *ConvertTask) Run(ctx context.Context) error {
 			}
 		}
 
-		cmd = exec.CommandContext(ctx, rlottieExcutablePath, strings.Split(fmt.Sprintf("%s 512x512", task.InputFilePath), " ")...)
-		defer func() {
-			if err := os.Remove(task.InputFilePath); err != nil {
-				logger.Warn.Println("failed to remove", task.InputFilePath)
-			}
-		}()
+		cmd = exec.CommandContext(ctx, rlottieExcutablePath, task.InputFilePath, "512x512")
+		defer os.Remove(task.InputFilePath)
 	} else {
 		args := []string{"-y"}
-		var vfilter string
-
+		vfilter := "fps=fps='min(source_fps,40)'"
 		if task.InputExtension == "webm" {
 			args = append(args, "-vcodec", "libvpx-vp9")
-			// Detect transparency and choose appropriate filter
 			if task.detectWebmAlpha(ctx) {
-				vfilter = "fps=fps='min(source_fps,40)'," + paletteFilter
-			} else {
-				vfilter = "fps=fps='min(source_fps,40)'"
+				vfilter += "," + paletteFilter
 			}
-		} else {
-			vfilter = "fps=fps='min(source_fps,40)'"
 		}
-
-		args = append(args, "-i", task.InputFilePath,
-			"-vf", vfilter,
-			task.OutputFilePath)
+		args = append(args, "-i", task.InputFilePath, "-vf", vfilter, task.OutputFilePath)
 		cmd = exec.CommandContext(ctx, ffmpegExecutablePath, args...)
 	}
 
-	//cmd.Stderr = logWriter{}
-	err := cmd.Run()
-	if err != nil {
+	if err := cmd.Run(); err != nil {
 		return err
 	}
 
 	if task.InputExtension == "tgs" {
-		err = os.Rename(task.InputFilePath+".gif", task.OutputFilePath)
-		if err != nil {
-			return err
-		}
-	} else if task.InputExtension == "webp" {
+		return os.Rename(task.InputFilePath+".gif", task.OutputFilePath)
+	}
+	if task.InputExtension == "webp" {
 		if err := trimTransparentEdges(task.OutputFilePath); err != nil {
 			logger.Warn.Printf("failed to trim transparent edges: %v", err)
 		}
 	}
-
-	return err
-}
-
-type logWriter struct{}
-
-func (w logWriter) Write(p []byte) (n int, err error) {
-	logger.Error.Println("[ConvertTask]" + string(p))
-	return len(p), nil
+	return nil
 }
 
 func getRlottieFilename() string {
-	exeSuffix := ""
 	if runtime.GOOS == "windows" {
-		exeSuffix = ".exe"
+		return "lottie2gif.exe"
 	}
-	return fmt.Sprintf("lottie2gif" + exeSuffix)
+	return "lottie2gif"
 }
 
 func getFfmpegFilename(simplify bool) string {
-	exeSuffix := ""
-
-	if simplify == false {
-		exeSuffix += fmt.Sprintf("-%s-%s", runtime.GOOS, runtime.GOARCH)
+	name := "ffmpeg"
+	if !simplify {
+		name += fmt.Sprintf("-%s-%s", runtime.GOOS, runtime.GOARCH)
 	}
-
-	//windows
 	if runtime.GOOS == "windows" {
-		exeSuffix += ".exe"
+		name += ".exe"
 	}
-
-	return "ffmpeg" + exeSuffix
+	return name
 }
 
 func (task *ConvertTask) tgsDecode() error {
@@ -146,44 +104,35 @@ func (task *ConvertTask) tgsDecode() error {
 		return err
 	}
 
-	buff := bytes.Buffer{}
+	var buff bytes.Buffer
 	if _, err = buff.ReadFrom(r); err != nil {
 		return err
 	}
 
-	_ = file.Truncate(0)
+	file.Truncate(0)
 	file.Seek(0, 0)
-	if _, err = file.Write(buff.Bytes()); err != nil {
-		return err
-	}
-
-	return nil
+	_, err = file.Write(buff.Bytes())
+	return err
 }
 
-// TgsToJson extracts the JSON content from a TGS file (gzip-compressed JSON)
-// and saves it to the specified output path
 func TgsToJson(tgsFilePath, jsonOutputPath string) error {
-	// Open TGS file for reading
 	tgsFile, err := os.Open(tgsFilePath)
 	if err != nil {
 		return err
 	}
 	defer tgsFile.Close()
 
-	// Decompress gzip
 	r, err := gzip.NewReader(tgsFile)
 	if err != nil {
 		return err
 	}
 	defer r.Close()
 
-	// Read decompressed JSON content
-	buff := bytes.Buffer{}
+	var buff bytes.Buffer
 	if _, err = buff.ReadFrom(r); err != nil {
 		return err
 	}
 
-	// Write JSON to output file
 	return os.WriteFile(jsonOutputPath, buff.Bytes(), 0644)
 }
 
@@ -192,11 +141,8 @@ func (task *ConvertTask) detectWebmAlpha(ctx context.Context) bool {
 	defer os.Remove(tempPNG)
 
 	cmd := exec.CommandContext(ctx, ffmpegExecutablePath,
-		"-vcodec", "libvpx-vp9",
-		"-i", task.InputFilePath,
-		"-frames:v", "1",
-		"-compression_level", "0",
-		"-y", tempPNG)
+		"-vcodec", "libvpx-vp9", "-i", task.InputFilePath,
+		"-frames:v", "1", "-compression_level", "0", "-y", tempPNG)
 
 	if cmd.Run() != nil {
 		return true
@@ -214,29 +160,28 @@ func (task *ConvertTask) detectWebmAlpha(ctx context.Context) bool {
 	}
 
 	bounds := img.Bounds()
-	width := bounds.Dx()
-	height := bounds.Dy()
+	width, height := bounds.Dx(), bounds.Dy()
 
-	checkPixel := func(x, y int) bool {
+	hasAlpha := func(x, y int) bool {
 		_, _, _, a := img.At(x, y).RGBA()
 		return a < 65535
 	}
 
 	for x := 0; x < width; x += 8 {
-		if checkPixel(x, 0) || checkPixel(x, height-1) {
+		if hasAlpha(x, 0) || hasAlpha(x, height-1) {
 			return true
 		}
 	}
 
 	for y := 0; y < height; y += 8 {
-		if checkPixel(0, y) || checkPixel(width-1, y) {
+		if hasAlpha(0, y) || hasAlpha(width-1, y) {
 			return true
 		}
 	}
 
 	for y := 16; y < height-16; y += 32 {
 		for x := 16; x < width-16; x += 32 {
-			if checkPixel(x, y) {
+			if hasAlpha(x, y) {
 				return true
 			}
 		}
@@ -258,63 +203,47 @@ func trimTransparentEdges(imagePath string) error {
 	}
 
 	bounds := img.Bounds()
-	width := bounds.Dx()
-	height := bounds.Dy()
-	minX, maxX := width, 0
-	minY, maxY := height, 0
+	width, height := bounds.Dx(), bounds.Dy()
+	minX, maxX, minY, maxY := width, 0, height, 0
 
 	isOpaque := func(x, y int) bool {
 		_, _, _, a := img.At(x, y).RGBA()
 		return a > 0
 	}
 
-	for y := 0; y < height; y++ {
+	for y := 0; y < height && minY >= height; y++ {
 		for x := 0; x < width; x++ {
 			if isOpaque(x, y) {
-				if y < minY {
-					minY = y
-				}
+				minY = y
 				break
 			}
 		}
-		if minY < height {
-			break
-		}
 	}
 
-	for y := height - 1; y >= minY; y-- {
+	for y := height - 1; y >= minY && maxY == 0; y-- {
 		for x := 0; x < width; x++ {
 			if isOpaque(x, y) {
 				maxY = y
 				break
 			}
 		}
-		if maxY > 0 {
-			break
-		}
 	}
 
-	for x := 0; x < width; x++ {
+	for x := 0; x < width && minX >= width; x++ {
 		for y := minY; y <= maxY; y++ {
 			if isOpaque(x, y) {
 				minX = x
 				break
 			}
 		}
-		if minX < width {
-			break
-		}
 	}
 
-	for x := width - 1; x >= minX; x-- {
+	for x := width - 1; x >= minX && maxX == 0; x-- {
 		for y := minY; y <= maxY; y++ {
 			if isOpaque(x, y) {
 				maxX = x
 				break
 			}
-		}
-		if maxX > 0 {
-			break
 		}
 	}
 
