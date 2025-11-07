@@ -64,15 +64,15 @@ type Config struct {
 
 func Init() {
 	if !isExist("./config.yaml") {
-		if !isExist("./.env") {
-			log.Fatalln("config.yaml and .env not exist！！")
+		if isExist("./.env") {
+			log.Println("Loading .env file")
+			_ = godotenv.Load()
 		}
-		//env
-		log.Println("Loading configuration from: .env")
-		_ = godotenv.Load()
+
+		log.Println("Loading configuration from environment variables")
 		cf = new(Config)
 		if err := env.Parse(cf); err != nil {
-			log.Fatalln("failed to parse .env", err)
+			log.Fatalln("failed to parse environment variables:", err)
 		}
 	} else {
 		//yaml

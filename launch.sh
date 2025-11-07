@@ -16,8 +16,7 @@ sleep 1
 
 shutdown() {
   echo "Shutting down gracefully..."
-  pkill -TERM app && sleep 3
-  redis-cli SAVE && redis-cli SHUTDOWN NOSAVE
+  pkill -TERM app && redis-cli SAVE && redis-cli SHUTDOWN NOSAVE
 }
 
 trap shutdown SIGTERM SIGINT
