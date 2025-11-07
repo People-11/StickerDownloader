@@ -145,7 +145,10 @@ RUN mkdir -p lottie2gif
 COPY --from=lottie2gif-builder /build/lottie2gif/output/lottie2gif ./lottie2gif/
 COPY --from=ffmpeg-builder /build/ffmpeg/ffmpeg /usr/local/bin/ffmpeg
 
+COPY launch.sh ./
+RUN chmod +x launch.sh
+
 VOLUME ["/app/storage", "/app/log"]
 
-# 默认启动程序
-CMD ["./app"]
+# 启动 Redis 和应用
+CMD ["./launch.sh"]

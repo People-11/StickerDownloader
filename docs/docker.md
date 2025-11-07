@@ -23,7 +23,7 @@ StickerDownloader 应用，支持以下两种场景：
 
 ```yaml
 redis:
-  server: "redis"          # 对应 docker-compose 的 redis 服务名
+  server: "localhost"          # 主镜像已经集成redis
   port: "6379"
   password: ""
   tls: false
