@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-mkdir -p /app/redis_data
+mkdir -p /app/storage/redis_data
 
 redis-server \
   --daemonize yes \
@@ -9,7 +9,7 @@ redis-server \
   --appendonly no \
   --bind 127.0.0.1 \
   --port 6379 \
-  --dir /app/redis_data \
+  --dir /app/storage/redis_data \
   --dbfilename dump.rdb \
 
 sleep 1

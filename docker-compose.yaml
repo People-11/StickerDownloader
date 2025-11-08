@@ -9,7 +9,7 @@ services:
       - ./.env:/app/.env:ro
       - ./log:/app/log
       - ./storage:/app/storage
-      - redis_data:/app/redis_data
+      - redis_data:/app/storage/redis_data
 
 volumes:
   redis_data:
