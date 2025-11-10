@@ -137,57 +137,49 @@ func TgsToJson(tgsFilePath, jsonOutputPath string) error {
 }
 
 func (task *ConvertTask) detectWebmAlpha(ctx context.Context) bool {
-	tempPNG := task.InputFilePath + "_alpha_check.png"
-	defer os.Remove(tempPNG)
+	const threshold = 0.05 // 5% 透明像素阈值
 
-	cmd := exec.CommandContext(ctx, ffmpegExecutablePath,
-		"-vcodec", "libvpx-vp9", "-i", task.InputFilePath,
-		"-frames:v", "1", "-compression_level", "0", "-y", tempPNG)
+	checkFrame := func(seekEnd bool) bool {
+		tempPNG := fmt.Sprintf("%s_alpha_%d.png", task.InputFilePath, map[bool]int{true: 1}[seekEnd])
+		defer os.Remove(tempPNG)
 
-	if cmd.Run() != nil {
-		return true
-	}
-
-	file, err := os.Open(tempPNG)
-	if err != nil {
-		return true
-	}
-	defer file.Close()
-
-	img, err := png.Decode(file)
-	if err != nil {
-		return true
-	}
-
-	bounds := img.Bounds()
-	width, height := bounds.Dx(), bounds.Dy()
-
-	hasAlpha := func(x, y int) bool {
-		_, _, _, a := img.At(x, y).RGBA()
-		return a < 65535
-	}
-
-	for x := 0; x < width; x += 8 {
-		if hasAlpha(x, 0) || hasAlpha(x, height-1) {
-			return true
+		args := []string{"-vcodec", "libvpx-vp9"}
+		if seekEnd {
+			args = append(args, "-sseof", "-0.1")
 		}
-	}
+		args = append(args, "-i", task.InputFilePath, "-frames:v", "1", "-y", tempPNG)
 
-	for y := 0; y < height; y += 8 {
-		if hasAlpha(0, y) || hasAlpha(width-1, y) {
-			return true
+		if exec.CommandContext(ctx, ffmpegExecutablePath, args...).Run() != nil {
+			return false
 		}
-	}
 
-	for y := 16; y < height-16; y += 32 {
-		for x := 16; x < width-16; x += 32 {
-			if hasAlpha(x, y) {
-				return true
+		file, _ := os.Open(tempPNG)
+		if file == nil {
+			return false
+		}
+		defer file.Close()
+
+		img, _ := png.Decode(file)
+		if img == nil {
+			return false
+		}
+
+		bounds := img.Bounds()
+		transparentCount, total := 0, 0
+		for y := 0; y < bounds.Dy(); y += 8 {
+			for x := 0; x < bounds.Dx(); x += 8 {
+				_, _, _, a := img.At(x, y).RGBA()
+				total++
+				if a < 65535 {
+					transparentCount++
+				}
 			}
 		}
+
+		return float64(transparentCount)/float64(total) > threshold
 	}
 
-	return false
+	return checkFrame(false) && checkFrame(true)
 }
 
 func trimTransparentEdges(imagePath string) error {
