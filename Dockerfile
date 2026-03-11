@@ -45,6 +45,7 @@ RUN mkdir build && \
           -DBUILD_SHARED_LIBS=OFF \
           -DCMAKE_CXX_FLAGS="-Os -s -static-libgcc -static-libstdc++" \
           -DCMAKE_EXE_LINKER_FLAGS="-static" \
+          -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
           .. && \
     make && \
     strip output/lottie2gif || true
